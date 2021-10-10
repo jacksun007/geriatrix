@@ -7,6 +7,10 @@ built-in aging profiles to facilitate aging.
 
 Geriatrix has been [published in USENIX ATC 2018](http://cs.cmu.edu/~saukad/geriatrix.pdf).
 
+## Changelog
+
+* (jsun): added partial overwrite to fragment log structured file system such as F2FS.
+
 ## Building
 
 Geriatrix requires the following to compile:
