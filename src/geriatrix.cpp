@@ -56,6 +56,7 @@ static int posix_fallocate(int fd, off_t offset, off_t len) {
 /* posix driver (the default) */
 static struct backend_driver posix_backend_driver = {
     open, close, write, access, unlink, mkdir, posix_fallocate, stat, chmod,
+    lseek,
 };
 
 #ifdef DELTAFS     /* optional backend for cmu's deltafs */
@@ -154,6 +155,40 @@ void issueAccess(const char *path) {
   } while(1);
 }
 
+void issueWrite(const char *path, off_t offset, size_t len) {
+  int fd, rv;
+  const char * buf;
+  
+  if (len <= 0)
+    return;  
+  
+  // open file as write-only, file must exist
+  fd = g_backend->bd_open(path, O_WRONLY);
+  assert(fd > -1);
+  
+  // allocate random buffer
+  buf = new char[len];
+  assert(buf != NULL);
+  
+  rv = g_backend->bd_lseek(fd, offset, SEEK_SET);
+  assert(rv > -1);
+  
+  // write buffer to file
+  rv = g_backend->bd_write(fd, buf, len);
+  if(rv < 0) {
+    fprintf(stderr, "issueWrite: write failed: %s\n", strerror(errno));
+    abort();
+  }
+  else if (rv != len) {
+    fprintf(stderr, "issueWrite: only write %d/%lu bytes\n", rv, len);
+  }
+  
+  rv = g_backend->bd_close(fd);
+  assert(rv == 0);
+  
+  delete buf;
+}
+
 void issueDelete(const char *path) {
   int rv;
   issueAccess(path);
@@ -174,6 +209,34 @@ int File::createFile() {
   size_t size = this->blk_size * this->blk_count;
   if(!fake)
     pool->enqueue([path, size] { issueCreate(path.c_str(), size); });
+  return 0;
+}
+
+/**
+ * Write a file.
+ */
+int File::writeFile() {
+  std::string slash = "";
+  if(depth > 1) {
+    slash = "/";
+  }
+  std::string path = mount_point + slash + this->path;
+  
+  if (this->blk_count == 0) {
+    // fprintf(stderr, "File::writeFile: file is empty: %s\n", path.c_str());
+    return 0;
+  }
+  
+  // TODO (jsun): need to use deterministic random here
+  size_t nblks = (rand() % this->blk_count) + 1;
+  off_t bkoff = rand() % (this->blk_count - nblks + 1);
+  size_t size = this->blk_size * nblks;
+  off_t off = this->blk_size * bkoff;
+  
+  assert(bkoff + nblks <= this->blk_count);
+   
+  if(!fake)
+    pool->enqueue([path, off, size] { issueWrite(path.c_str(), off, size); });
   return 0;
 }
 
@@ -645,7 +708,7 @@ size_t createFile(int size_arr_position, struct age *a_grp, struct size *s_grp,
   char name[PATH_MAX];
   std::string sibling_dir = "";
   if((d.depth > 0) && (d.sibling_dirs > 0)) {
-    boost::random::mt19937 gen{static_cast<std::uint64_t>(rand())};
+    boost::random::mt19937 gen{static_cast<unsigned>(rand())};
     boost::random::uniform_int_distribution<std::uint64_t> dist{1,
       static_cast<std::uint64_t>(d.sibling_dirs)};
     auto rand_subdir = dist(gen);
@@ -820,6 +883,60 @@ size_t deleteFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
   return ret_size;
 }
 
+void writeFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
+  /*
+   * When writing to a file, we perform the following operations:
+   *
+   * 1. find what size file we should delete.
+   * 2. choose bucket to delete it from.
+   * 3. choose which position in the bucket to delete it from.
+   * 4. perform write operation
+   *
+   */
+
+  // step 1
+  File *f = NULL;
+  SizeBucket sb(0, 0, s_grp->arr); // dummy SizeBucket
+  AgeBucket ab;
+  DirBucket db(0, 0, 0, mount_point, fake,
+               d_grp->arr, mkdir_path); // dummy DirBucket
+
+  auto a_it = age_buckets.rbegin();
+
+  // select age bucket
+  do {
+    ab = a_it->second;
+    auto s_it = size_buckets->begin();
+    // select size bucket
+    do {
+      sb = s_it->second;
+      auto d_it = dir_buckets->rbegin();
+      // select dir bucket
+      do {
+        db = d_it->second;
+        
+        // TODO (jsun): this does not guarantee that the file is not empty,
+        // so the write may do nothing.
+        f = ab.getFileToDelete(sb.size, db.depth);
+        d_it++;
+      } while((f == NULL) && (d_it != dir_buckets->rend()));
+      s_it++;
+    } while((f == NULL) && (s_it != size_buckets->end()));
+    a_it++;
+  } while((f == NULL) && (a_it != age_buckets.rend()));
+
+  if(f == NULL) {
+    std::cout << "Cannot write to a single file of any size!" << std::endl;
+    exit(1);
+  }
+
+  auto ret_size = f->size;
+
+  // step 4
+  auto retval = f->writeFile();
+  assert(retval == 0);
+}
+
 uint64_t calculateT(struct age *a_grp) {
   uint64_t T = 0;
   int64_t t = 0;
@@ -873,7 +990,7 @@ int performOp(bool create, int size_arr_position,
 
 int performRapidAging(size_t till_size, int idle_injections,
     struct age *a, struct size *s, struct dir *d) {
-  boost::random::mt19937 gen{static_cast<std::uint64_t>(total_size_weight)};
+  boost::random::mt19937 gen{static_cast<unsigned>(total_size_weight)};
   boost::random::uniform_int_distribution<std::uint64_t> dist{1,
     static_cast<std::uint64_t>(total_size_weight)};
   while(live_data_size < till_size) {
@@ -898,6 +1015,9 @@ int performStableAging(size_t till_size, int idle_injections,
   int confidence_met = 0;
   AGING_TRIGGER trigger = none;
   do {
+    // (jsun): only write to file during stable aging
+    writeFile(a, s, d);
+  
     if(tossCoin() < 0.5) {
       performOp(true, -1, idle_injections, a, s, d); // create file
     } else {

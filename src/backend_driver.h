@@ -30,6 +30,7 @@ struct backend_driver {
     int (*bd_fallocate)(int fd, off_t offset, off_t len);
     int (*bd_stat)(const char *path, struct stat *st);
     int (*bd_chmod)(const char *path, mode_t mode);
+    off_t (*bd_lseek)(int fd, off_t offset, int whence);
 };
 
 #endif /* BACKEND_ */

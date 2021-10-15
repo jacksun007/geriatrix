@@ -62,6 +62,7 @@ class File {
     int createFile();
     int deleteFile();
     int accessFile();
+    int writeFile();
 
     void operator=(const File &f) {
       size = f.size;
