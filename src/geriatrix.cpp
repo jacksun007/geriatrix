@@ -9,6 +9,8 @@
 
 #include "geriatrix.h"
 
+static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize);
+
 #ifdef NEED_POSIX_FALLOCATE
 /*
  * fake posix_fallocate by ftruncating the file larger and touching
@@ -35,17 +37,7 @@ static int posix_fallocate(int fd, off_t offset, off_t len) {
     curoff = ((st.st_size + (st.st_blksize-1)) / st.st_blksize) * st.st_blksize;
     lastoff = ((newlen + (st.st_blksize-1)) / st.st_blksize) * st.st_blksize;
 
-    for (ptr = curoff ; ptr < lastoff ; ptr += st.st_blksize) {
-        if (lseek(fd, ptr, SEEK_SET) < 0)
-            return(errno);
-        rv = write(fd, "", 1);    /* writes a null */
-        if (rv < 0)
-            return(errno);
-        if (rv == 0)
-            return(EIO);
-    }
-
-    return(0);
+    return write_zero(fd, curoff, lastoff, st.st_blksize);
 }
 #endif
 
@@ -155,9 +147,29 @@ void issueAccess(const char *path) {
   } while(1);
 }
 
-void issueWrite(const char *path, off_t offset, size_t len) {
+static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize)
+{
+    ssize_t rv;
+    off_t ptr;
+    
+    // printf("write_zero: curoff = %ld, lastoff = %ld, blksize = %lu\n", 
+    //    curoff, lastoff, blksize);
+
+    for (ptr = curoff ; ptr < lastoff ; ptr += blksize) {
+        if (g_backend->bd_lseek(fd, ptr, SEEK_SET) < 0)
+            return(errno);
+        rv = g_backend->bd_write(fd, "", 1);    /* writes a null */
+        if (rv < 0)
+            return(errno);
+        if (rv == 0)
+            return(EIO);
+    }
+    
+    return 0;
+}
+
+void issueWrite(const char *path, off_t offset, size_t len, size_t blksize) {
   int fd, rv;
-  const char * buf;
   
   if (len <= 0)
     return;  
@@ -166,27 +178,16 @@ void issueWrite(const char *path, off_t offset, size_t len) {
   fd = g_backend->bd_open(path, O_WRONLY);
   assert(fd > -1);
   
-  // allocate random buffer
-  buf = new char[len];
-  assert(buf != NULL);
+  // write zeros to file
+  rv = write_zero(fd, offset, offset + len, blksize);
   
-  rv = g_backend->bd_lseek(fd, offset, SEEK_SET);
-  assert(rv > -1);
-  
-  // write buffer to file
-  rv = g_backend->bd_write(fd, buf, len);
-  if(rv < 0) {
-    fprintf(stderr, "issueWrite: write failed: %s\n", strerror(errno));
+  if(rv != 0) {
+    fprintf(stderr, "issueWrite: write failed: %s\n", strerror(rv));
     abort();
-  }
-  else if (rv != len) {
-    fprintf(stderr, "issueWrite: only write %d/%lu bytes\n", rv, len);
   }
   
   rv = g_backend->bd_close(fd);
   assert(rv == 0);
-  
-  delete buf;
 }
 
 void issueDelete(const char *path) {
@@ -232,11 +233,14 @@ int File::writeFile() {
   off_t bkoff = rand() % (this->blk_count - nblks + 1);
   size_t size = this->blk_size * nblks;
   off_t off = this->blk_size * bkoff;
+  size_t bs = this->blk_size;
   
   assert(bkoff + nblks <= this->blk_count);
    
   if(!fake)
-    pool->enqueue([path, off, size] { issueWrite(path.c_str(), off, size); });
+    pool->enqueue([path, off, size, bs] { 
+        issueWrite(path.c_str(), off, size, bs); 
+    });
   return 0;
 }
 
