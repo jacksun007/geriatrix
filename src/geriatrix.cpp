@@ -1152,7 +1152,8 @@ void handler(int signo){
 }
 
 int main(int argc, char *argv[]) {
-  if(argc != 37) {
+  // (jsun): only 37 or 38 arguments allowed
+  if(argc < 37 || argc > 38) {
     usage();
     exit(1);
   }
