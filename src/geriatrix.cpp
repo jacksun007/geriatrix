@@ -1020,7 +1020,9 @@ int performStableAging(size_t till_size, int idle_injections,
   AGING_TRIGGER trigger = none;
   do {
     // (jsun): only write to file during stable aging
-    writeFile(a, s, d);
+    if (!original_behavior) {
+        writeFile(a, s, d);
+    }
   
     if(tossCoin() < 0.5) {
       performOp(true, -1, idle_injections, a, s, d); // create file
@@ -1088,6 +1090,7 @@ void usage() {
   std::cout << "        -q <0 / 1 ask before quitting>" << std::endl;
   std::cout << "        -w <num mins>" << std::endl;
   std::cout << "        -b <backend (posix, deltafs, etc.)>" << std::endl;
+  std::cout << "        -o original behavior (no overwrite)" << std::endl;
   std::cout << std::endl;
 }
 
@@ -1162,7 +1165,7 @@ int main(int argc, char *argv[]) {
   int idle_injections = 0;
   int query_before_quitting = 0;
   while((option = getopt(argc, argv,
-                         "n:u:r:m:a:s:d:x:y:z:t:i:f:p:c:q:w:b:")) != EOF) {
+                         "n:u:r:m:a:s:d:x:y:z:t:i:f:p:c:q:w:b:o")) != EOF) {
     switch(option) {
       case 'n': total_disk_capacity = strtoull(optarg, NULL, 10); break;
       case 'u': utilization = strtod(optarg, NULL); break;
@@ -1182,6 +1185,7 @@ int main(int argc, char *argv[]) {
       case 'q': query_before_quitting = atoi(optarg); break;
       case 'w': runtime_max = atoi(optarg); break;
       case 'b': mybackend = optarg; break;
+      case 'o': original_behavior = true; break;
     }
   }
   if (!mybackend || strcmp(mybackend, "posix") == 0) {

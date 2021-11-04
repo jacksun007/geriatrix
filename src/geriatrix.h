@@ -43,6 +43,7 @@ int NUM_DIRS = 0;
 int NUM_SIZES = 0;
 int NUM_AGES = 0;
 int fake = 0;
+bool original_behavior = false;
 
 typedef enum {
   DIRS,
