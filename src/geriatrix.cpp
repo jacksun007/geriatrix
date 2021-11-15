@@ -235,6 +235,10 @@ int File::writeFile() {
   off_t off = this->blk_size * bkoff;
   size_t bs = this->blk_size;
   
+  if (size >= 16777216) {
+    printf("overwriting large file: size = %lu\n", size);
+  }
+  
   assert(bkoff + nblks <= this->blk_count);
    
   if(!fake)
