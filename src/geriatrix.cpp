@@ -235,10 +235,6 @@ int File::writeFile() {
   off_t off = this->blk_size * bkoff;
   size_t bs = this->blk_size;
   
-  if (size >= 16777216) {
-    printf("overwriting large file: size = %lu\n", size);
-  }
-  
   assert(bkoff + nblks <= this->blk_count);
    
   if(!fake)
@@ -980,7 +976,8 @@ uint64_t calculateT(struct age *a_grp) {
 }
 
 int performOp(bool create, int size_arr_position,
-    int idle_injections, struct age *a, struct size *s, struct dir *d) {
+    int idle_injections, struct age *a, struct size *s, struct dir *d) 
+{    
   tick++;
   int create_succeeded = 0;
   if(create) {
@@ -1026,13 +1023,17 @@ int performStableAging(size_t till_size, int idle_injections,
     // (jsun): only write to file during stable aging
     if (!original_behavior) {
         writeFile(a, s, d);
+        tick++;
     }
-  
-    if(tossCoin() < 0.5) {
-      performOp(true, -1, idle_injections, a, s, d); // create file
-    } else {
-      performOp(false, -1, idle_injections, a, s, d); // delete file
+    // original behaviour -- create and delete continuously
+    else {
+        if(tossCoin() < 0.5) {
+          performOp(true, -1, idle_injections, a, s, d); // create file
+        } else {
+          performOp(false, -1, idle_injections, a, s, d); // delete file
+        }
     }
+    
     reAge(a, future_tick);
 
     if((tick % 10000) == 0) {
