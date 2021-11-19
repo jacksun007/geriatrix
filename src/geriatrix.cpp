@@ -229,7 +229,10 @@ int File::writeFile() {
   }
   
   // TODO (jsun): need to use deterministic random here
-  size_t nblks = (rand() % this->blk_count) + 1;
+  
+  // always just write 1 block to increase chance of fragmentation
+  // size_t nblks = (rand() % this->blk_count) + 1;
+  size_t nblks = 1;
   off_t bkoff = rand() % (this->blk_count - nblks + 1);
   size_t size = this->blk_size * nblks;
   off_t off = this->blk_size * bkoff;
