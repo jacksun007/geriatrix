@@ -147,18 +147,15 @@ void issueAccess(const char *path) {
   } while(1);
 }
 
-static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize)
+static int write_data(int fd, off_t cur, off_t last, size_t blksize, char byte)
 {
     ssize_t rv;
     off_t ptr;
-    
-    // printf("write_zero: curoff = %ld, lastoff = %ld, blksize = %lu\n", 
-    //    curoff, lastoff, blksize);
 
-    for (ptr = curoff ; ptr < lastoff ; ptr += blksize) {
+    for (ptr = cur; ptr < last ; ptr += blksize) {
         if (g_backend->bd_lseek(fd, ptr, SEEK_SET) < 0)
             return(errno);
-        rv = g_backend->bd_write(fd, "", 1);    /* writes a null */
+        rv = g_backend->bd_write(fd, &byte, 1);
         if (rv < 0)
             return(errno);
         if (rv == 0)
@@ -166,6 +163,11 @@ static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize)
     }
     
     return 0;
+}
+
+static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize)
+{
+    return write_data(fd, curoff, lastoff, blksize, '\0');
 }
 
 void issueWrite(const char *path, off_t offset, size_t len, size_t blksize) {
@@ -179,7 +181,7 @@ void issueWrite(const char *path, off_t offset, size_t len, size_t blksize) {
   assert(fd > -1);
   
   // write zeros to file
-  rv = write_zero(fd, offset, offset + len, blksize);
+  rv = write_data(fd, offset, offset + len, blksize, (char)1);
   
   if(rv != 0) {
     fprintf(stderr, "issueWrite: write failed: %s\n", strerror(rv));
