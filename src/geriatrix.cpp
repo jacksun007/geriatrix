@@ -109,17 +109,45 @@ static int mkdir_path(const char *path, mode_t mode) {
   return( done < 0 ? -1 : 0);
 }
 
-void issueCreate(const char *path, size_t len) {
+static int write_data(int fd, off_t cur, off_t last, size_t blksize, char byte)
+{
+    ssize_t rv;
+    off_t ptr;
+
+    for (ptr = cur; ptr < last ; ptr += blksize) {
+        if (g_backend->bd_lseek(fd, ptr, SEEK_SET) < 0)
+            return(errno);
+        rv = g_backend->bd_write(fd, &byte, 1);
+        if (rv < 0)
+            return(errno);
+        if (rv == 0)
+            return(EIO);
+    }
+    
+    return 0;
+}
+
+static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize)
+{
+    return write_data(fd, curoff, lastoff, blksize, '\0');
+}
+
+void issueCreate(const char *path, size_t len, size_t blksize) {
   int fd, rv = 1;
   fd = g_backend->bd_open(path, O_RDWR|O_CREAT, 0600);
   assert(fd > -1);
   if(len > 0) {
+#if 0      
     do {
       if(rv < 0) {
         sleep(1);
       }
       rv = g_backend->bd_fallocate(fd, 0, len);
     } while(rv != 0);
+#else
+    // (jsun): instead of fallocate, we'll actually write something
+    rv = write_data(fd, 0, len, blksize, 'X');
+#endif    
     if(rv != 0) {
       fprintf(stderr,
           "issueCreate: fallocate(%s): %s with params fd: %d, len:%lu\n",
@@ -147,29 +175,6 @@ void issueAccess(const char *path) {
   } while(1);
 }
 
-static int write_data(int fd, off_t cur, off_t last, size_t blksize, char byte)
-{
-    ssize_t rv;
-    off_t ptr;
-
-    for (ptr = cur; ptr < last ; ptr += blksize) {
-        if (g_backend->bd_lseek(fd, ptr, SEEK_SET) < 0)
-            return(errno);
-        rv = g_backend->bd_write(fd, &byte, 1);
-        if (rv < 0)
-            return(errno);
-        if (rv == 0)
-            return(EIO);
-    }
-    
-    return 0;
-}
-
-static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize)
-{
-    return write_data(fd, curoff, lastoff, blksize, '\0');
-}
-
 void issueWrite(const char *path, off_t offset, size_t len, size_t blksize) {
   int fd, rv;
   
@@ -181,7 +186,7 @@ void issueWrite(const char *path, off_t offset, size_t len, size_t blksize) {
   assert(fd > -1);
   
   // write zeros to file
-  rv = write_data(fd, offset, offset + len, blksize, (char)1);
+  rv = write_data(fd, offset, offset + len, blksize, 'O');
   
   if(rv != 0) {
     fprintf(stderr, "issueWrite: write failed: %s\n", strerror(rv));
@@ -211,7 +216,9 @@ int File::createFile() {
   std::string path = mount_point + slash + this->path;
   size_t size = this->blk_size * this->blk_count;
   if(!fake)
-    pool->enqueue([path, size] { issueCreate(path.c_str(), size); });
+    pool->enqueue([path, size] { 
+        issueCreate(path.c_str(), size, this->blk_size); 
+    });
   return 0;
 }
 
