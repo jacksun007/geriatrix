@@ -215,9 +215,11 @@ int File::createFile() {
   }
   std::string path = mount_point + slash + this->path;
   size_t size = this->blk_size * this->blk_count;
+  size_t bs = this->blk_size;
+
   if(!fake)
-    pool->enqueue([path, size] { 
-        issueCreate(path.c_str(), size, this->blk_size); 
+    pool->enqueue([path, size, bs] { 
+        issueCreate(path.c_str(), size, bs); 
     });
   return 0;
 }
@@ -1037,15 +1039,16 @@ int performStableAging(size_t till_size, int idle_injections,
         writeFile(a, s, d);
         tick++;
     }
+
     // original behaviour -- create and delete continuously
-    else {
+    /* else */ {
         if(tossCoin() < 0.5) {
           performOp(true, -1, idle_injections, a, s, d); // create file
         } else {
           performOp(false, -1, idle_injections, a, s, d); // delete file
         }
     }
-    
+
     reAge(a, future_tick);
 
     if((tick % 10000) == 0) {

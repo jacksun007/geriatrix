@@ -5,11 +5,14 @@
 #include <iostream>
 #include <cerrno>
 
+// 16GB
+#define FILE_SIZE 2147483648L
+
 // 8GB
 //#define FILE_SIZE 1073741824L
 
 // 2GB
-#define FILE_SIZE 268435456L
+//#define FILE_SIZE 268435456L
 
 // 1GB
 //#define FILE_SIZE 134217728L
