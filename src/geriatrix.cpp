@@ -144,16 +144,30 @@ void issueCreate(const char *path, size_t len, size_t blksize) {
       }
       rv = g_backend->bd_fallocate(fd, 0, len);
     } while(rv != 0);
-#else
-    // (jsun): instead of fallocate, we'll actually write something
-    rv = write_data(fd, 0, len, blksize, 'X');
-#endif    
     if(rv != 0) {
       fprintf(stderr,
           "issueCreate: fallocate(%s): %s with params fd: %d, len:%lu\n",
           path, strerror(rv), fd, len);
       abort();
     }
+#else
+    // (jsun): instead of fallocate, we'll actually write something
+    rv = write_data(fd, 0, len, blksize, 'X');
+    if(rv != 0) {
+      fprintf(stderr,
+          "issueCreate: write_data(%s): %s with params fd: %d, len:%lu\n",
+          path, strerror(rv), fd, len);
+      abort();
+    }
+    
+    // TODO:
+    // (jsun): the file size seems weird after write_data, using this for now
+    rv = ftruncate(fd, len);
+    if (rv != 0) {
+        fprintf(stderr, "issueCreate: ftruncate(%s): %s\n", path, strerror(rv));
+    }
+#endif    
+
   }
   rv = g_backend->bd_close(fd);
   assert(rv == 0);
