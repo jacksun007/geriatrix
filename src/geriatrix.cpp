@@ -700,7 +700,7 @@ void dumpStats(struct age *a, struct size *s, struct dir *d) {
   File * curr = global_file_list->fs, * last = global_file_list->fs;
   while (curr->next != last) {
     if (curr->nr_written > 0) {
-        fprintf(fp, "size = %lu, nr_written = %d\n", curr->size,
+        fprintf(fp, "size = %lu nr_written = %d\n", curr->size,
                 curr->nr_written);
         std::cout.flush();
     }
@@ -930,56 +930,54 @@ size_t deleteFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
   return ret_size;
 }
 
+int global_max_written = 0;
+
 void writeFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
   /*
    * When writing to a file, we perform the following operations:
    *
-   * 1. find what size file we should delete.
-   * 2. choose bucket to delete it from.
-   * 3. choose which position in the bucket to delete it from.
-   * 4. perform write operation
+   * 1. go backwards on the global file list because newer files are 
+   *    placed behind the head of the list
+   * 2. find the first file that has not been overwritten yet
+   * 3. perform write operation
    *
    */
 
   // step 1
-  File *f = NULL;
-  SizeBucket sb(0, 0, s_grp->arr); // dummy SizeBucket
-  AgeBucket ab;
-  DirBucket db(0, 0, 0, mount_point, fake,
-               d_grp->arr, mkdir_path); // dummy DirBucket
+  File *f = NULL, * last = global_file_list->fs, * curr = last->prev;
 
-  auto a_it = age_buckets.rbegin();
+  while (curr != last) {
+    // step 2
+    if (curr->nr_written == 0) {
+        f = curr;
+        break;
+    }
+    else if (curr->nr_written > global_max_written) {
+        global_max_written = curr->nr_written;
+    }
+    
+    curr = curr->prev;
+  }
 
-  // select age bucket
-  do {
-    ab = a_it->second;
-    auto s_it = size_buckets->begin();
-    // select size bucket
-    do {
-      sb = s_it->second;
-      auto d_it = dir_buckets->rbegin();
-      // select dir bucket
-      do {
-        db = d_it->second;
-        
-        // TODO (jsun): this does not guarantee that the file is not empty,
-        // so the write may do nothing.
-        f = ab.getFileToDelete(sb.size, db.depth);
-        d_it++;
-      } while((f == NULL) && (d_it != dir_buckets->rend()));
-      s_it++;
-    } while((f == NULL) && (s_it != size_buckets->end()));
-    a_it++;
-  } while((f == NULL) && (a_it != age_buckets.rend()));
-
+  if(f == NULL) {
+    curr = last->prev;
+    while (curr != last) {
+        // purposefully allow nr_written to exceed global max
+        // in case all files are at exactly the global max
+        if (curr->nr_written <= global_max_written) {
+            f = curr;
+            break;
+        }
+        curr = curr->prev;
+    }
+  }
+  
   if(f == NULL) {
     std::cout << "Cannot write to a single file of any size!" << std::endl;
     exit(1);
   }
 
-  auto ret_size = f->size;
-
-  // step 4
+  // step 3
   auto retval = f->writeFile();
   assert(retval == 0);
 }
