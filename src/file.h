@@ -16,6 +16,7 @@ class File {
     size_t size;
     std::string path;
     uint64_t age;
+    int nr_written;
     int depth; // id of the dir_bucket_keys
     File *prev;
     File *next;
@@ -31,6 +32,7 @@ class File {
       this->size = 0;
       this->age = 0;
       this->depth = 0;
+      this->nr_written = 0;
       this->prev = this->next = NULL;
       this->size_next = this->size_prev = NULL;
       this->dir_next = this->dir_prev = NULL;
@@ -56,6 +58,7 @@ class File {
         this->blk_count = 1;
       }
       this->depth = depth;
+      this->nr_written = 0;
       this->dir_next = this->dir_prev = NULL;
     }
 

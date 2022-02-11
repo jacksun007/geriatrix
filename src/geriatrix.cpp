@@ -265,10 +265,13 @@ int File::writeFile() {
   
   assert(bkoff + nblks <= this->blk_count);
    
-  if(!fake)
+  if(!fake) {
     pool->enqueue([path, off, size, bs] { 
         issueWrite(path.c_str(), off, size, bs); 
     });
+    this->nr_written += 1;
+  }
+  
   return 0;
 }
 
@@ -692,6 +695,18 @@ void dumpStats(struct age *a, struct size *s, struct dir *d) {
   std::cout << " Dir depth distribution dumped in " << d->out_file << std::endl;
   std::cout << " Age distribution dumped in " << a->out_file << std::endl;
   std::cout << "================================================" << std::endl;
+  
+  FILE *fp = fopen("overwrite.out", "wt");
+  File * curr = global_file_list->fs, * last = global_file_list->fs;
+  while (curr->next != last) {
+    if (curr->nr_written > 0) {
+        fprintf(fp, "size = %lu, nr_written = %d\n", curr->size,
+                curr->nr_written);
+        std::cout.flush();
+    }
+    curr = curr->next;
+  }
+  fclose(fp);
 }
 
 size_t createFile(int size_arr_position, struct age *a_grp, struct size *s_grp,
