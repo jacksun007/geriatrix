@@ -944,34 +944,31 @@ void writeFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
    */
 
   // step 1
-  File *f = NULL, * last = global_file_list->fs, * curr = last->prev;
+  File *f = NULL;
+  
+  for (int i = 0; i < 2; i++) {
+    File * last = global_file_list->fs, * curr = last->prev;
 
-  while (curr != last) {
-    // step 2
-    if (curr->nr_written == 0) {
-        f = curr;
-        break;
-    }
-    else if (curr->nr_written > global_max_written) {
-        global_max_written = curr->nr_written;
-    }
-    
-    curr = curr->prev;
-  }
-
-  if(f == NULL) {
-    curr = last->prev;
     while (curr != last) {
-        // purposefully allow nr_written to exceed global max
-        // in case all files are at exactly the global max
-        if (curr->nr_written <= global_max_written) {
+        
+        // step 2
+        if (curr->size < 2097152) {
+            // do nothing. we want only big files
+        }
+        else if (curr->nr_written <= global_max_written) {
             f = curr;
             break;
         }
+        
         curr = curr->prev;
     }
+    
+    if (f != NULL)
+        break;
+    else
+        global_max_written++;
   }
-  
+
   if(f == NULL) {
     std::cout << "Cannot write to a single file of any size!" << std::endl;
     exit(1);
