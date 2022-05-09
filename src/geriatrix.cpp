@@ -1015,7 +1015,7 @@ uint64_t calculateT(struct age *a_grp) {
   return T;
 }
 
-int performOp(bool create, int size_arr_position,
+int performOp(bool rapid, bool create, int size_arr_position,
     int idle_injections, struct age *a, struct size *s, struct dir *d) 
 {    
   tick++;
@@ -1025,10 +1025,17 @@ int performOp(bool create, int size_arr_position,
     if(create_succeeded == 0) {
       live_data_size += data_added;
       workload_size += data_added;
+      if (!rapid) {
+        printf("create: +%zd\n", data_added);      
+      }
     }
   }
   if (!create || create_succeeded == -1) {
-    live_data_size -= deleteFile(a, s, d);
+    auto data_removed = deleteFile(a, s, d);
+    live_data_size -= data_removed;
+    if (!rapid) {
+      printf("delete: -%zd\n", data_removed);
+    }
   }
   return 0;
 }
@@ -1048,7 +1055,7 @@ int performRapidAging(size_t till_size, int idle_injections,
         break;
       }
     }
-    performOp(true, j, idle_injections, a, s, d);
+    performOp(true, true, j, idle_injections, a, s, d);
   }
   return 0;
 }
@@ -1069,9 +1076,9 @@ int performStableAging(size_t till_size, int idle_injections,
     // original behaviour -- create and delete continuously
     /* else */ {
         if(tossCoin() < 0.5) {
-          performOp(true, -1, idle_injections, a, s, d); // create file
+          performOp(false, true, -1, idle_injections, a, s, d); // create file
         } else {
-          performOp(false, -1, idle_injections, a, s, d); // delete file
+          performOp(false, false, -1, idle_injections, a, s, d); // delete file
         }
     }
 
