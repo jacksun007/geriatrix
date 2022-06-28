@@ -9,6 +9,8 @@
 
 #include "geriatrix.h"
 
+static boost::random::mt19937 global_gen;
+
 static int write_zero(int fd, off_t curoff, off_t lastoff, size_t blksize);
 
 #ifdef NEED_POSIX_FALLOCATE
@@ -255,12 +257,12 @@ int File::writeFile() {
     return 0;
   }
   
-  // TODO (jsun): need to use deterministic random here
-  
+  // (jsun): using deterministic random here
   // always just write 1 block to increase chance of fragmentation
-  // size_t nblks = (rand() % this->blk_count) + 1;
   size_t nblks = 1;
-  off_t bkoff = rand() % (this->blk_count - nblks + 1);
+  boost::random::uniform_int_distribution<off_t> dist{0,
+      static_cast<off_t>(this->blk_count - nblks + 1)};
+  off_t bkoff = dist(global_gen);
   size_t size = this->blk_size * nblks;
   off_t off = this->blk_size * bkoff;
   size_t bs = this->blk_size;
@@ -757,10 +759,9 @@ size_t createFile(int size_arr_position, struct age *a_grp, struct size *s_grp,
   char name[PATH_MAX];
   std::string sibling_dir = "";
   if((d.depth > 0) && (d.sibling_dirs > 0)) {
-    boost::random::mt19937 gen{static_cast<unsigned>(rand())};
     boost::random::uniform_int_distribution<std::uint64_t> dist{1,
       static_cast<std::uint64_t>(d.sibling_dirs)};
-    auto rand_subdir = dist(gen);
+    auto rand_subdir = dist(global_gen);
     sibling_dir += "d" + std::to_string(rand_subdir) + "/";
   }
   snprintf(name, PATH_MAX, "%s/%s%" PRIu64, d.prefix.c_str(),
@@ -832,7 +833,7 @@ size_t deleteFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
    * 3. choose which position in the bucket to delete it from.
    * 4. perform unlink operation.
    * 5. decrement global_live_file_count.
-   * 6.  adjust dir buckets
+   * 6. adjust dir buckets
    * 7. adjust age_buckets
    * 8. adjust size_buckets
    * 9. remove file from global_file_list
@@ -842,35 +843,51 @@ size_t deleteFile(struct age *a_grp, struct size *s_grp, struct dir *d_grp) {
 
   // step 1
   File *f = NULL;
+
   SizeBucket sb(0, 0, s_grp->arr); // dummy SizeBucket
   AgeBucket ab;
   DirBucket db(0, 0, 0, mount_point, fake,
                d_grp->arr, mkdir_path); // dummy DirBucket
 
   auto a_it = age_buckets.rbegin();
+  boost::random::geometric_distribution<long, double> dist(0.4); 
+  long skip = dist(global_gen) % size_buckets->size();
+  
+  // select a size bucket that has at least 1 entry
+  do {
+    auto b_it = s_grp->bucket_keys.find(skip);
+    assert(b_it != s_grp->bucket_keys.end());
+    auto key = b_it->second;
+    auto s_it = size_buckets->find(key);
+    assert(s_it != size_buckets->end());
+    sb = s_it->second;
+    skip--;
+  } while (sb.count <= 1 && skip >= 0);
+  skip += 1;
 
   // select age bucket
   do {
     ab = a_it->second;
-    auto s_it = size_buckets->begin();
-    // select size bucket
+
+    auto d_it = dir_buckets->rbegin();
+    // select dir bucket
     do {
-      sb = s_it->second;
-      auto d_it = dir_buckets->rbegin();
-      // select dir bucket
-      do {
-        db = d_it->second;
-        f = ab.getFileToDelete(sb.size, db.depth);
-        d_it++;
-      } while((f == NULL) && (d_it != dir_buckets->rend()));
-      s_it++;
-    } while((f == NULL) && (s_it != size_buckets->end()));
+      db = d_it->second;
+      f = ab.getFileToDelete(sb.size, db.depth);
+      d_it++;
+    } while((f == NULL) && (d_it != dir_buckets->rend()));
+
     a_it++;
   } while((f == NULL) && (a_it != age_buckets.rend()));
 
   if(f == NULL) {
     std::cout << "Cannot delete a single file of any size!" << std::endl;
+              
     exit(1);
+  }
+  else if (skip >= size_buckets->size()-1) {
+    std::cout << "deleting file size " << f->size << ", skip = "
+              << skip << std::endl;
   }
 
   auto ret_size = f->size;
@@ -1015,7 +1032,7 @@ uint64_t calculateT(struct age *a_grp) {
   return T;
 }
 
-int performOp(bool rapid, bool create, int size_arr_position,
+int performOp(bool create, int size_arr_position,
     int idle_injections, struct age *a, struct size *s, struct dir *d) 
 {    
   tick++;
@@ -1025,17 +1042,11 @@ int performOp(bool rapid, bool create, int size_arr_position,
     if(create_succeeded == 0) {
       live_data_size += data_added;
       workload_size += data_added;
-      if (!rapid) {
-        printf("create: +%zd\n", data_added);      
-      }
     }
   }
   if (!create || create_succeeded == -1) {
     auto data_removed = deleteFile(a, s, d);
     live_data_size -= data_removed;
-    if (!rapid) {
-      printf("delete: -%zd\n", data_removed);
-    }
   }
   return 0;
 }
@@ -1055,7 +1066,7 @@ int performRapidAging(size_t till_size, int idle_injections,
         break;
       }
     }
-    performOp(true, true, j, idle_injections, a, s, d);
+    performOp(true, j, idle_injections, a, s, d);
   }
   return 0;
 }
@@ -1076,15 +1087,15 @@ int performStableAging(size_t till_size, int idle_injections,
     // original behaviour -- create and delete continuously
     /* else */ {
         if(tossCoin() < 0.5) {
-          performOp(false, true, -1, idle_injections, a, s, d); // create file
+          performOp(true, -1, idle_injections, a, s, d); // create file
         } else {
-          performOp(false, false, -1, idle_injections, a, s, d); // delete file
+          performOp(false, -1, idle_injections, a, s, d); // delete file
         }
     }
 
     reAge(a, future_tick);
 
-    if((tick % 10000) == 0) {
+    if((tick % 100000) == 0) {
       auto end = std::chrono::high_resolution_clock::now();
       auto millis = std::chrono::duration<double,
            std::milli>(end - start).count();
@@ -1255,6 +1266,7 @@ int main(int argc, char *argv[]) {
 
   assert(total_disk_capacity > 0);
   srand(seed);
+  global_gen.seed(seed);
 
   init(&a, &s, &d); // initialize the data structures for aging
   if(confidence > 0.0) {
