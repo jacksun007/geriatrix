@@ -139,39 +139,37 @@ void issueCreate(const char *path, size_t len, size_t blksize) {
   fd = g_backend->bd_open(path, O_RDWR|O_CREAT, 0600);
   assert(fd > -1);
   if(len > 0) {
-    if (original_behavior) {   
-        do {
-          if(rv < 0) {
-            sleep(1);
-          }
-          rv = g_backend->bd_fallocate(fd, 0, len);
-        } while(rv != 0);
-        if(rv != 0) {
-          fprintf(stderr,
-              "issueCreate: fallocate(%s): %s with params fd: %d, len:%lu\n",
-              path, strerror(rv), fd, len);
-          abort();
-        }
+#if 0
+    do {
+      if(rv < 0) {
+        sleep(1);
+      }
+      rv = g_backend->bd_fallocate(fd, 0, len);
+    } while(rv != 0);
+    if(rv != 0) {
+      fprintf(stderr,
+          "issueCreate: fallocate(%s): %s with params fd: %d, len:%lu\n",
+          path, strerror(rv), fd, len);
+      abort();
     }
-    else
-    {
-        // (jsun): instead of fallocate, we'll actually write something
-        rv = write_data(fd, 0, len, blksize, 'X');
-        if(rv != 0) {
-          fprintf(stderr,
-              "issueCreate: write_data(%s): %s with params fd: %d, len:%lu\n",
-              path, strerror(rv), fd, len);
-          abort();
-        }
-        
-        // TODO:
-        // (jsun): the file size seems weird after write_data, use this for now
-        rv = ftruncate(fd, len);
-        if (rv != 0) {
-            fprintf(stderr, "issueCreate: ftruncate(%s): %s\n", path,
-                    strerror(rv));
-        }
-    } // if original
+#else        
+    // (jsun): instead of fallocate, we'll actually write something
+    rv = write_data(fd, 0, len, blksize, 'X');
+    if(rv != 0) {
+      fprintf(stderr,
+          "issueCreate: write_data(%s): %s with params fd: %d, len:%lu\n",
+          path, strerror(rv), fd, len);
+      abort();
+    }
+    
+    // TODO:
+    // (jsun): the file size seems weird after write_data, use this for now
+    rv = ftruncate(fd, len);
+    if (rv != 0) {
+        fprintf(stderr, "issueCreate: ftruncate(%s): %s\n", path,
+                strerror(rv));
+    }
+#endif /* using new behaviour of writing data */
   } // if len
   rv = g_backend->bd_close(fd);
   assert(rv == 0);
